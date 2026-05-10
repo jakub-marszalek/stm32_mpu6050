@@ -11,6 +11,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "mpu6050.h"
+#include "math.h"
 
 /* Private define ------------------------------------------------------------*/
 #define PWR_MGMT_1_ADDR   (0x6B)        /*!< Power Management 1 register address   */
@@ -78,6 +79,23 @@ static float calculate_ang_vel(const int16_t ang_vel, const float sens)
     return (float)ang_vel / sens;
 }
 
+/**
+  * @brief  Updates an angles structure with values calculated from accelerometer measurements.
+  * @param  hangles Pointer to a MPU_6050_AnglesTypeDef structure.
+  * @param  hdata   Pointer to a MPU_6050_DataTypeDef structure.
+  * @note   This is an internal helper. Not exposed in the public API.
+  *         Uses tri-axis formula for constant sensitivity over 360° of rotation.
+  */
+static void MPU_6050_UpdateAccelAngles(MPU_6050_AnglesTypeDef *hangles, const MPU_6050_DataTypeDef *hdata)
+{
+    const float acc_x = hdata->accel_x;
+    const float acc_y = hdata->accel_y;
+    const float acc_z = hdata->accel_z;
+
+    hangles->accel_angle_x = atan2f(acc_y, sqrtf(acc_x*acc_x + acc_z*acc_z)) * (180.0f / (float)M_PI);
+    hangles->accel_angle_y = atan2f(-acc_x, sqrtf(acc_y*acc_y + acc_z*acc_z)) * (180.0f / (float)M_PI);
+}
+
 /* Exported functions --------------------------------------------------------*/
 /**
   * @brief  Initializes the MPU-6050 sensor and configures measuring ranges.
@@ -85,11 +103,11 @@ static float calculate_ang_vel(const int16_t ang_vel, const float sens)
   *         resets all calibration offsets to 0.0, verifies device presence,
   *         wakes the sensor from sleep mode, and configures accelerometer
   *         and gyroscope full-scale ranges.
-  * @param  hmpu       Pointer to a MPU_6050_HandleTypeDef structure.
-  * @param  hi2c       Pointer to the I2C handle used for communication.
-  * @param  dev_addr   I2C device address (MPU_DEV_ADDR_0 or MPU_DEV_ADDR_1).
-  * @param  accel_afs  Accelerometer full-scale range (ACCEL_AFS_2..ACCEL_AFS_16).
-  * @param  gyro_fs    Gyroscope full-scale range (GYRO_FS_250..GYRO_FS_2000).
+  * @param  hmpu             Pointer to a MPU_6050_HandleTypeDef structure.
+  * @param  hi2c             Pointer to the I2C handle used for communication.
+  * @param  dev_addr         I2C device address (MPU_DEV_ADDR_0 or MPU_DEV_ADDR_1).
+  * @param  accel_afs        Accelerometer full-scale range (ACCEL_AFS_2..ACCEL_AFS_16).
+  * @param  gyro_fs          Gyroscope full-scale range (GYRO_FS_250..GYRO_FS_2000).
   * @retval HAL_StatusTypeDef  HAL_OK on success, HAL_ERROR if device not found
   *                            or invalid range specified.
   */
@@ -101,16 +119,19 @@ HAL_StatusTypeDef MPU_6050_Init(
         const uint8_t gyro_fs
     )
 {
-    hmpu->hi2c           = hi2c;
-    hmpu->dev_addr       = dev_addr;
-    hmpu->accel_offset_x = 0.0f;
-    hmpu->accel_offset_y = 0.0f;
-    hmpu->accel_offset_z = 0.0f;
-    hmpu->gyro_offset_x  = 0.0f;
-    hmpu->gyro_offset_y  = 0.0f;
-    hmpu->gyro_offset_z  = 0.0f;
+    if (hmpu == NULL || hi2c == NULL) return HAL_ERROR;
 
     HAL_StatusTypeDef ret = HAL_OK;
+
+    hmpu->hi2c             = hi2c;
+    hmpu->dev_addr         = dev_addr;
+    hmpu->accel_offset_x   = 0.0f;
+    hmpu->accel_offset_y   = 0.0f;
+    hmpu->accel_offset_z   = 0.0f;
+    hmpu->gyro_offset_x    = 0.0f;
+    hmpu->gyro_offset_y    = 0.0f;
+    hmpu->gyro_offset_z    = 0.0f;
+
     ret = HAL_I2C_IsDeviceReady(hmpu->hi2c, hmpu->dev_addr, 10, 20);
     if (ret != HAL_OK) return ret;
 
@@ -227,10 +248,10 @@ HAL_StatusTypeDef MPU_6050_SetGyroFs(MPU_6050_HandleTypeDef *hmpu, const uint8_t
   *           bytes [8..13] — gyroscope X, Y, Z (2 bytes each)
   *         Calibration offsets stored in the handle are subtracted from each reading.
   * @param  hmpu   Pointer to a MPU_6050_HandleTypeDef structure.
-  * @param  hdata  Pointer to a MPU_6050_Data_TypeDef structure to be populated.
+  * @param  hdata  Pointer to a MPU_6050_DataTypeDef structure to be populated.
   * @retval HAL_StatusTypeDef  HAL_OK on success, HAL_ERROR on I2C failure.
   */
-HAL_StatusTypeDef MPU_6050_Read(const MPU_6050_HandleTypeDef *hmpu, MPU_6050_Data_TypeDef *hdata)
+HAL_StatusTypeDef MPU_6050_Read(const MPU_6050_HandleTypeDef *hmpu, MPU_6050_DataTypeDef *hdata)
 {
     uint8_t raw_data[14];
     HAL_StatusTypeDef ret = HAL_OK;
@@ -242,7 +263,7 @@ HAL_StatusTypeDef MPU_6050_Read(const MPU_6050_HandleTypeDef *hmpu, MPU_6050_Dat
             I2C_MEMADD_SIZE_8BIT,
             raw_data,
             14,
-            20
+            30
         );
     if (ret != HAL_OK) return ret;
 
@@ -272,7 +293,7 @@ HAL_StatusTypeDef MPU_6050_Calibrate(MPU_6050_HandleTypeDef *hmpu, const uint16_
 {
     if (samples == 0) return HAL_ERROR;
 
-    MPU_6050_Data_TypeDef data;
+    MPU_6050_DataTypeDef data;
     double accel_sum_x = 0, accel_sum_y = 0, accel_sum_z = 0;
     double gyro_sum_x = 0, gyro_sum_y = 0, gyro_sum_z = 0;
 
@@ -295,4 +316,118 @@ HAL_StatusTypeDef MPU_6050_Calibrate(MPU_6050_HandleTypeDef *hmpu, const uint16_
     hmpu->gyro_offset_z  = (float)(gyro_sum_z / samples);
 
     return HAL_OK;
+}
+
+/**
+  * @brief  Resets all values in an angles structure to 0.0f.
+  * @param  hangles  Pointer to a MPU_6050_AnglesTypeDef structure.
+  */
+void MPU_6050_ResetAngles(MPU_6050_AnglesTypeDef *hangles)
+{
+    hangles->accel_angle_x  = 0.0f;
+    hangles->accel_angle_y  = 0.0f;
+    hangles->filter_angle_x = 0.0f;
+    hangles->filter_angle_y = 0.0f;
+    hangles->kalman_angle_x = 0.0f;
+    hangles->kalman_angle_y = 0.0f;
+}
+
+/**
+  * @brief  Sets the gain parameter for complementary filter.
+  * @param  hmpu              Pointer to a MPU_6050_HandleTypeDef structure.
+  * @param  filter_gain       Float number from 0.00 .. 1.00 range (recommended: 0.98).
+  * @retval HAL_StatusTypeDef HAL_OK on success, HAL_ERROR if gain is out of range.
+  */
+HAL_StatusTypeDef MPU_6050_SetCompFilterGain(MPU_6050_HandleTypeDef *hmpu, const float filter_gain)
+{
+    if (filter_gain < 0.0f || filter_gain > 1.0f) return HAL_ERROR;
+    hmpu->comp_filter_gain = filter_gain;
+    return HAL_OK;
+}
+
+/**
+  * @brief  Updates an angles structure with values calculated from complementary filter formula.
+  * @param  hmpu     Pointer to a MPU_6050_HandleTypeDef structure.
+  * @param  hangles  Pointer to a MPU_6050_AnglesTypeDef structure.
+  * @param  hdata    Pointer to a MPU_6050_DataTypeDef structure.
+  * @param  dt       Time period between samples in seconds.
+  */
+void MPU_6050_UpdateCompFilterAngles(
+        const MPU_6050_HandleTypeDef *hmpu,
+        MPU_6050_AnglesTypeDef *hangles,
+        const MPU_6050_DataTypeDef *hdata,
+        const float dt
+    )
+{
+    if (dt <= 0.0f) return;
+    const float gain = hmpu->comp_filter_gain;
+
+    MPU_6050_UpdateAccelAngles(hangles, hdata);
+    hangles->filter_angle_x = gain*(hangles->filter_angle_x + hdata->gyro_x * dt) + (1.0f - gain)*hangles->accel_angle_x;
+    hangles->filter_angle_y = gain*(hangles->filter_angle_y + hdata->gyro_y * dt) + (1.0f - gain)*hangles->accel_angle_y;
+}
+
+/**
+  * @brief  Initializes a MPU_6050_KalmanFilterTypeDef structure with noise parameters.
+  * @param  hkalman  Pointer to a MPU_6050_KalmanFilter_TypeDef structure.
+  * @param  q        Process noise covariance — models gyroscope drift (recommended: 0.001).
+  * @param  r        Measurement noise covariance — models accelerometer noise (recommended: 0.03).
+  * @note   Both q and r must be greater than 0. Higher q trusts the accelerometer more;
+  *         higher r trusts the gyroscope more.
+  * @retval HAL_StatusTypeDef  HAL_OK on success, HAL_ERROR if q or r are less or equal to 0.
+  */
+HAL_StatusTypeDef MPU_6050_InitKalmanFilter(MPU_6050_KalmanFilterTypeDef *hkalman, const float q, const float r)
+{
+    if (q <= 0.0f || r <= 0.0f) return HAL_ERROR;
+
+    hkalman->angle_x = 0.0f;
+    hkalman->angle_y = 0.0f;
+    hkalman->p_x     = 1.0f;
+    hkalman->p_y     = 1.0f;
+    hkalman->q       = q;
+    hkalman->r       = r;
+
+    return HAL_OK;
+}
+
+/**
+  * @brief  Updates an angles structure with values calculated from Kalman filter formulas.
+  * @param  hdata    Pointer to a MPU_6050_DataTypeDef structure.
+  * @param  hkalman  Pointer to a MPU_6050_KalmanFilterTypeDef structure.
+  * @param  hangles  Pointer to a MPU_6050_AnglesTypeDef structure.
+  * @param  dt       Time period between samples in seconds.
+  * @note   Implements a discrete Kalman filter in two steps:
+  *         Prediction: angle += gyro * dt; P += Q
+  *         Correction: K = P / (P + R); angle += K * (accel_angle - angle); P = (1-K) * P
+  */
+void MPU_6050_UpdateKalmanFilterAngles(
+        const MPU_6050_DataTypeDef *hdata,
+        MPU_6050_KalmanFilterTypeDef *hkalman,
+        MPU_6050_AnglesTypeDef *hangles,
+        const float dt
+    )
+{
+    if (dt <= 0.0f) return;
+    MPU_6050_UpdateAccelAngles(hangles, hdata);
+
+    const float pred_angle_x = hkalman->angle_x + hdata->gyro_x * dt;
+    const float pred_angle_y = hkalman->angle_y + hdata->gyro_y * dt;
+    const float pred_p_x     = hkalman->p_x + hkalman->q;
+    const float pred_p_y     = hkalman->p_y + hkalman->q;
+
+    const float k_x     = pred_p_x / (pred_p_x + hkalman->r);
+    const float angle_x = pred_angle_x + k_x * (hangles->accel_angle_x - pred_angle_x);
+    const float p_x     = (1.0f - k_x) * pred_p_x;
+
+    const float k_y     = pred_p_y / (pred_p_y + hkalman->r);
+    const float angle_y = pred_angle_y + k_y * (hangles->accel_angle_y - pred_angle_y);
+    const float p_y     = (1.0f - k_y) * pred_p_y;
+
+    hangles->kalman_angle_x = angle_x;
+    hkalman->angle_x        = angle_x;
+    hkalman->p_x            = p_x < 0.0f ? 0.0f : p_x;
+
+    hangles->kalman_angle_y = angle_y;
+    hkalman->angle_y        = angle_y;
+    hkalman->p_y            = p_y < 0.0f ? 0.0f : p_y;
 }
