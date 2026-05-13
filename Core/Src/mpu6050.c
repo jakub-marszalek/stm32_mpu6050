@@ -92,6 +92,10 @@ static void MPU_6050_UpdateAccelAngles(MPU_6050_AnglesTypeDef *hangles, const MP
     const float acc_y = hdata->accel_y;
     const float acc_z = hdata->accel_z;
 
+    const float norm_x = sqrtf(acc_x*acc_x + acc_z*acc_z);
+    const float norm_y = sqrtf(acc_y*acc_y + acc_z*acc_z);
+    if (norm_x < 1e-6f || norm_y < 1e-6f) return;
+
     hangles->accel_angle_x = atan2f(acc_y, sqrtf(acc_x*acc_x + acc_z*acc_z)) * (180.0f / (float)M_PI);
     hangles->accel_angle_y = atan2f(-acc_x, sqrtf(acc_y*acc_y + acc_z*acc_z)) * (180.0f / (float)M_PI);
 }
@@ -146,6 +150,8 @@ HAL_StatusTypeDef MPU_6050_Init(
                 20
             );
     if (ret != HAL_OK) return ret;
+
+    HAL_Delay(20);
 
     ret = MPU_6050_SetAccelAfs(hmpu, accel_afs);
     if (ret != HAL_OK) return ret;
