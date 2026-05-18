@@ -14,24 +14,28 @@
 #include "math.h"
 
 /* Private define ------------------------------------------------------------*/
-#define PWR_MGMT_1_ADDR   (0x6B)        /*!< Power Management 1 register address   */
+#define PWR_MGMT_1_ADDR   (0x6B)        /*!< Power Management 1 register address      */
+#define SLEEP_BIT         (1 << 6)      /*!< SLEEP bit (bit 6) of PWR_MGMT_1 register */
 
-#define ACCEL_CONFIG_ADDR (0x1C)        /*!< Accelerometer configuration register  */
-#define ACCEL_AFS_2_SENS  (16384.0f)    /*!< Sensitivity for ±2g range  in LSB/g   */
-#define ACCEL_AFS_4_SENS  (8192.0f)     /*!< Sensitivity for ±4g range  in LSB/g   */
-#define ACCEL_AFS_8_SENS  (4096.0f)     /*!< Sensitivity for ±8g range  in LSB/g   */
-#define ACCEL_AFS_16_SENS (2048.0f)     /*!< Sensitivity for ±16g range in LSB/g   */
+#define ACCEL_CONFIG_ADDR (0x1C)        /*!< Accelerometer configuration register     */
+#define ACCEL_AFS_2_SENS  (16384.0f)    /*!< Sensitivity for ±2g range  in LSB/g      */
+#define ACCEL_AFS_4_SENS  (8192.0f)     /*!< Sensitivity for ±4g range  in LSB/g      */
+#define ACCEL_AFS_8_SENS  (4096.0f)     /*!< Sensitivity for ±8g range  in LSB/g      */
+#define ACCEL_AFS_16_SENS (2048.0f)     /*!< Sensitivity for ±16g range in LSB/g      */
 
-#define TEMP_DIVISOR      (340.0f)      /*!< Temperature conversion divisor        */
-#define TEMP_OFFSET       (36.53f)      /*!< Temperature conversion offset         */
+#define TEMP_DIVISOR      (340.0f)      /*!< Temperature conversion divisor           */
+#define TEMP_OFFSET       (36.53f)      /*!< Temperature conversion offset            */
 
-#define GYRO_CONFIG_ADDR  (0x1B)        /*!< Gyroscope configuration register      */
-#define GYRO_FS_250_SENS  (131.0f)      /*!< Sensitivity for ±250  °/s in LSB/°/s  */
-#define GYRO_FS_500_SENS  (65.5f)       /*!< Sensitivity for ±500  °/s in LSB/°/s  */
-#define GYRO_FS_1000_SENS (32.8f)       /*!< Sensitivity for ±1000 °/s in LSB/°/s  */
-#define GYRO_FS_2000_SENS (16.4f)       /*!< Sensitivity for ±2000 °/s in LSB/°/s  */
+#define GYRO_CONFIG_ADDR  (0x1B)        /*!< Gyroscope configuration register         */
+#define GYRO_FS_250_SENS  (131.0f)      /*!< Sensitivity for ±250  °/s in LSB/°/s     */
+#define GYRO_FS_500_SENS  (65.5f)       /*!< Sensitivity for ±500  °/s in LSB/°/s     */
+#define GYRO_FS_1000_SENS (32.8f)       /*!< Sensitivity for ±1000 °/s in LSB/°/s     */
+#define GYRO_FS_2000_SENS (16.4f)       /*!< Sensitivity for ±2000 °/s in LSB/°/s     */
 
-#define DATA_START_ADDR   (0x3B)        /*!< First data register (ACCEL_XOUT_H)    */
+#define DATA_START_ADDR   (0x3B)        /*!< First data register (ACCEL_XOUT_H)       */
+
+#define MPU_INIT_TRIALS   (10)          /*!< Number of trails for I2C ready check     */
+#define MPU_I2C_TIMEOUT   (30)          /*!< I2C communication timeout in ms          */
 
 /* Private functions ---------------------------------------------------------*/
 /**
@@ -43,6 +47,66 @@
 static int16_t raw_to_int16(const uint8_t raw_hsb, const uint8_t raw_lsb)
 {
     return (int16_t)(raw_hsb << 8 | raw_lsb);
+}
+
+/**
+  * @brief  Reads one or more registers from the MPU-6050 over I2C.
+  * @param  hi2c      Pointer to the I2C handle.
+  * @param  dev_addr  I2C device address.
+  * @param  reg_addr  Starting register address to read from.
+  * @param  size      Number of bytes to read.
+  * @param  reg       Pointer to buffer where read data will be stored.
+  * @retval HAL_StatusTypeDef  HAL_OK on success, HAL_ERROR on invalid args or I2C failure.
+  */
+static HAL_StatusTypeDef mpu_read_register(
+    I2C_HandleTypeDef *hi2c,
+    const uint8_t dev_addr,
+    const uint8_t reg_addr,
+    const uint8_t size,
+    uint8_t *reg
+) {
+    if (hi2c == NULL || reg == NULL || size == 0) return HAL_ERROR;
+
+    const HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(
+        hi2c,
+        dev_addr,
+        reg_addr,
+        I2C_MEMADD_SIZE_8BIT,
+        reg,
+        size,
+        MPU_I2C_TIMEOUT
+    );
+    return ret;
+}
+
+/**
+  * @brief  Writes one or more registers to the MPU-6050 over I2C.
+  * @param  hi2c      Pointer to the I2C handle.
+  * @param  dev_addr  I2C device address.
+  * @param  reg_addr  Starting register address to write to.
+  * @param  size      Number of bytes to write.
+  * @param  value     Pointer to buffer containing data to write.
+  * @retval HAL_StatusTypeDef  HAL_OK on success, HAL_ERROR on invalid args or I2C failure.
+  */
+static HAL_StatusTypeDef mpu_write_register(
+    I2C_HandleTypeDef *hi2c,
+    const uint8_t dev_addr,
+    const uint8_t reg_addr,
+    const uint8_t size,
+    const uint8_t *value
+) {
+    if (hi2c == NULL || value == NULL || size == 0) return HAL_ERROR;
+
+    const HAL_StatusTypeDef ret = HAL_I2C_Mem_Write(
+        hi2c,
+        dev_addr,
+        reg_addr,
+        I2C_MEMADD_SIZE_8BIT,
+        (uint8_t*)value,
+        size,
+        MPU_I2C_TIMEOUT
+    );
+    return ret;
 }
 
 /**
@@ -92,12 +156,12 @@ static void MPU_6050_UpdateAccelAngles(MPU_6050_AnglesTypeDef *hangles, const MP
     const float acc_y = hdata->accel_y;
     const float acc_z = hdata->accel_z;
 
-    const float norm_x = sqrtf(acc_x*acc_x + acc_z*acc_z);
-    const float norm_y = sqrtf(acc_y*acc_y + acc_z*acc_z);
+    const float norm_x = sqrtf(acc_x * acc_x + acc_z * acc_z);
+    const float norm_y = sqrtf(acc_y * acc_y + acc_z * acc_z);
     if (norm_x < 1e-6f || norm_y < 1e-6f) return;
 
-    hangles->accel_angle_x = atan2f(acc_y, sqrtf(acc_x*acc_x + acc_z*acc_z)) * (180.0f / (float)M_PI);
-    hangles->accel_angle_y = atan2f(-acc_x, sqrtf(acc_y*acc_y + acc_z*acc_z)) * (180.0f / (float)M_PI);
+    hangles->accel_angle_x = atan2f(acc_y, sqrtf(acc_x * acc_x + acc_z * acc_z)) * (180.0f / (float)M_PI);
+    hangles->accel_angle_y = atan2f(-acc_x, sqrtf(acc_y * acc_y + acc_z * acc_z)) * (180.0f / (float)M_PI);
 }
 
 /* Exported functions --------------------------------------------------------*/
@@ -116,39 +180,30 @@ static void MPU_6050_UpdateAccelAngles(MPU_6050_AnglesTypeDef *hangles, const MP
   *                            or invalid range specified.
   */
 HAL_StatusTypeDef MPU_6050_Init(
-        MPU_6050_HandleTypeDef *hmpu,
-        I2C_HandleTypeDef *hi2c,
-        const uint8_t dev_addr,
-        const uint8_t accel_afs,
-        const uint8_t gyro_fs
-    )
-{
+    MPU_6050_HandleTypeDef *hmpu,
+    I2C_HandleTypeDef *hi2c,
+    const uint8_t dev_addr,
+    const uint8_t accel_afs,
+    const uint8_t gyro_fs
+) {
     if (hmpu == NULL || hi2c == NULL) return HAL_ERROR;
 
     HAL_StatusTypeDef ret = HAL_OK;
 
-    hmpu->hi2c             = hi2c;
-    hmpu->dev_addr         = dev_addr;
-    hmpu->accel_offset_x   = 0.0f;
-    hmpu->accel_offset_y   = 0.0f;
-    hmpu->accel_offset_z   = 0.0f;
-    hmpu->gyro_offset_x    = 0.0f;
-    hmpu->gyro_offset_y    = 0.0f;
-    hmpu->gyro_offset_z    = 0.0f;
+    hmpu->hi2c           = hi2c;
+    hmpu->dev_addr       = dev_addr;
+    hmpu->accel_offset_x = 0.0f;
+    hmpu->accel_offset_y = 0.0f;
+    hmpu->accel_offset_z = 0.0f;
+    hmpu->gyro_offset_x  = 0.0f;
+    hmpu->gyro_offset_y  = 0.0f;
+    hmpu->gyro_offset_z  = 0.0f;
 
-    ret = HAL_I2C_IsDeviceReady(hmpu->hi2c, hmpu->dev_addr, 10, 20);
+    ret = HAL_I2C_IsDeviceReady(hmpu->hi2c, hmpu->dev_addr, MPU_INIT_TRIALS, MPU_I2C_TIMEOUT);
     if (ret != HAL_OK) return ret;
 
-    uint8_t byte = 0x00;
-    ret = HAL_I2C_Mem_Write(
-                hmpu->hi2c,
-                hmpu->dev_addr,
-                PWR_MGMT_1_ADDR,
-                I2C_MEMADD_SIZE_8BIT,
-                &byte,
-                1,
-                20
-            );
+    const uint8_t byte = 0x00;
+    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, 1, &byte);
     if (ret != HAL_OK) return ret;
 
     HAL_Delay(20);
@@ -172,7 +227,7 @@ HAL_StatusTypeDef MPU_6050_SetAccelAfs(MPU_6050_HandleTypeDef *hmpu, const uint8
 {
     HAL_StatusTypeDef ret = HAL_OK;
 
-    uint8_t afs = accel_afs;
+    const uint8_t afs = accel_afs;
     switch (afs) {
         case ACCEL_AFS_2:
             hmpu->accel_sens = ACCEL_AFS_2_SENS;
@@ -190,16 +245,7 @@ HAL_StatusTypeDef MPU_6050_SetAccelAfs(MPU_6050_HandleTypeDef *hmpu, const uint8
             return HAL_ERROR;
     }
 
-    ret = HAL_I2C_Mem_Write(
-            hmpu->hi2c,
-            hmpu->dev_addr,
-            ACCEL_CONFIG_ADDR,
-            I2C_MEMADD_SIZE_8BIT,
-            &afs,
-            1,
-            20
-        );
-
+    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, ACCEL_CONFIG_ADDR, 1, &afs);
     return ret;
 }
 
@@ -215,7 +261,7 @@ HAL_StatusTypeDef MPU_6050_SetGyroFs(MPU_6050_HandleTypeDef *hmpu, const uint8_t
 {
     HAL_StatusTypeDef ret = HAL_OK;
 
-    uint8_t fs = gyro_fs;
+    const uint8_t fs = gyro_fs;
     switch (fs) {
         case GYRO_FS_250:
             hmpu->gyro_sens = GYRO_FS_250_SENS;
@@ -233,16 +279,50 @@ HAL_StatusTypeDef MPU_6050_SetGyroFs(MPU_6050_HandleTypeDef *hmpu, const uint8_t
             return HAL_ERROR;
     }
 
-    ret = HAL_I2C_Mem_Write(
-            hmpu->hi2c,
-            hmpu->dev_addr,
-            GYRO_CONFIG_ADDR,
-            I2C_MEMADD_SIZE_8BIT,
-            &fs,
-            1,
-            20
-        );
+    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, GYRO_CONFIG_ADDR, 1, &fs);
+    return ret;
+}
 
+/**
+  * @brief  Puts the MPU-6050 sensor into sleep mode.
+  * @note   Sets the SLEEP bit (bit 6) of the PWR_MGMT_1 register (0x6B).
+  *         In sleep mode the sensor stops updating data registers.
+  *         I2C communication remains active.
+  * @param  hmpu  Pointer to a MPU_6050_HandleTypeDef structure.
+  * @retval HAL_StatusTypeDef  HAL_OK on success, HAL_ERROR on I2C failure.
+  */
+HAL_StatusTypeDef MPU_6050_Sleep(const MPU_6050_HandleTypeDef *hmpu)
+{
+    HAL_StatusTypeDef ret = HAL_OK;
+    uint8_t reg = 0;
+
+    ret = mpu_read_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, 1, &reg);
+    if (ret != HAL_OK) return ret;
+
+    reg |= SLEEP_BIT;
+
+    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, 1, &reg);
+    return ret;
+}
+
+/**
+  * @brief  Wakes the MPU-6050 sensor from sleep mode.
+  * @note   Clears the SLEEP bit (bit 6) of the PWR_MGMT_1 register (0x6B).
+  *         After waking, wait at least 20 ms before reading data registers.
+  * @param  hmpu  Pointer to a MPU_6050_HandleTypeDef structure.
+  * @retval HAL_StatusTypeDef  HAL_OK on success, HAL_ERROR on I2C failure.
+  */
+HAL_StatusTypeDef MPU_6050_Wake(const MPU_6050_HandleTypeDef *hmpu)
+{
+    HAL_StatusTypeDef ret = HAL_OK;
+    uint8_t reg = 0;
+
+    ret = mpu_read_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, 1, &reg);
+    if (ret != HAL_OK) return ret;
+
+    reg &= ~(SLEEP_BIT);
+
+    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, 1, &reg);
     return ret;
 }
 
@@ -262,24 +342,16 @@ HAL_StatusTypeDef MPU_6050_Read(const MPU_6050_HandleTypeDef *hmpu, MPU_6050_Dat
     uint8_t raw_data[14];
     HAL_StatusTypeDef ret = HAL_OK;
 
-    ret = HAL_I2C_Mem_Read(
-            hmpu->hi2c,
-            hmpu->dev_addr,
-            DATA_START_ADDR,
-            I2C_MEMADD_SIZE_8BIT,
-            raw_data,
-            14,
-            30
-        );
+    ret = mpu_read_register(hmpu->hi2c, hmpu->dev_addr, DATA_START_ADDR, 14, raw_data);
     if (ret != HAL_OK) return ret;
 
-    hdata->accel_x = calculate_accel(raw_to_int16(raw_data[0],   raw_data[1]),  hmpu->accel_sens) - hmpu->accel_offset_x;
-    hdata->accel_y = calculate_accel(raw_to_int16(raw_data[2],   raw_data[3]),  hmpu->accel_sens) - hmpu->accel_offset_y;
-    hdata->accel_z = calculate_accel(raw_to_int16(raw_data[4],   raw_data[5]),  hmpu->accel_sens) - hmpu->accel_offset_z;
-    hdata->temp    = calculate_temp(raw_to_int16(raw_data[6],   raw_data[7]));
-    hdata->gyro_x  = calculate_ang_vel(raw_to_int16(raw_data[8], raw_data[9]),  hmpu->gyro_sens) - hmpu->gyro_offset_x;
-    hdata->gyro_y  = calculate_ang_vel(raw_to_int16(raw_data[10],raw_data[11]), hmpu->gyro_sens) - hmpu->gyro_offset_y;
-    hdata->gyro_z  = calculate_ang_vel(raw_to_int16(raw_data[12],raw_data[13]), hmpu->gyro_sens) - hmpu->gyro_offset_z;
+    hdata->accel_x = calculate_accel(raw_to_int16(raw_data[0], raw_data[1]), hmpu->accel_sens) - hmpu->accel_offset_x;
+    hdata->accel_y = calculate_accel(raw_to_int16(raw_data[2], raw_data[3]), hmpu->accel_sens) - hmpu->accel_offset_y;
+    hdata->accel_z = calculate_accel(raw_to_int16(raw_data[4], raw_data[5]), hmpu->accel_sens) - hmpu->accel_offset_z;
+    hdata->temp = calculate_temp(raw_to_int16(raw_data[6], raw_data[7]));
+    hdata->gyro_x = calculate_ang_vel(raw_to_int16(raw_data[8], raw_data[9]), hmpu->gyro_sens) - hmpu->gyro_offset_x;
+    hdata->gyro_y = calculate_ang_vel(raw_to_int16(raw_data[10], raw_data[11]), hmpu->gyro_sens) - hmpu->gyro_offset_y;
+    hdata->gyro_z = calculate_ang_vel(raw_to_int16(raw_data[12], raw_data[13]), hmpu->gyro_sens) - hmpu->gyro_offset_z;
 
     return ret;
 }
@@ -359,18 +431,19 @@ HAL_StatusTypeDef MPU_6050_SetCompFilterGain(MPU_6050_HandleTypeDef *hmpu, const
   * @param  dt       Time period between samples in seconds.
   */
 void MPU_6050_UpdateCompFilterAngles(
-        const MPU_6050_HandleTypeDef *hmpu,
-        MPU_6050_AnglesTypeDef *hangles,
-        const MPU_6050_DataTypeDef *hdata,
-        const float dt
-    )
-{
+    const MPU_6050_HandleTypeDef *hmpu,
+    MPU_6050_AnglesTypeDef *hangles,
+    const MPU_6050_DataTypeDef *hdata,
+    const float dt
+) {
     if (dt <= 0.0f) return;
     const float gain = hmpu->comp_filter_gain;
 
     MPU_6050_UpdateAccelAngles(hangles, hdata);
-    hangles->filter_angle_x = gain*(hangles->filter_angle_x + hdata->gyro_x * dt) + (1.0f - gain)*hangles->accel_angle_x;
-    hangles->filter_angle_y = gain*(hangles->filter_angle_y + hdata->gyro_y * dt) + (1.0f - gain)*hangles->accel_angle_y;
+    hangles->filter_angle_x =
+        gain * (hangles->filter_angle_x + hdata->gyro_x * dt) + (1.0f - gain) * hangles->accel_angle_x;
+    hangles->filter_angle_y =
+        gain * (hangles->filter_angle_y + hdata->gyro_y * dt) + (1.0f - gain) * hangles->accel_angle_y;
 }
 
 /**
@@ -407,12 +480,11 @@ HAL_StatusTypeDef MPU_6050_InitKalmanFilter(MPU_6050_KalmanFilterTypeDef *hkalma
   *         Correction: K = P / (P + R); angle += K * (accel_angle - angle); P = (1-K) * P
   */
 void MPU_6050_UpdateKalmanFilterAngles(
-        const MPU_6050_DataTypeDef *hdata,
-        MPU_6050_KalmanFilterTypeDef *hkalman,
-        MPU_6050_AnglesTypeDef *hangles,
-        const float dt
-    )
-{
+    const MPU_6050_DataTypeDef *hdata,
+    MPU_6050_KalmanFilterTypeDef *hkalman,
+    MPU_6050_AnglesTypeDef *hangles,
+    const float dt
+) {
     if (dt <= 0.0f) return;
     MPU_6050_UpdateAccelAngles(hangles, hdata);
 
