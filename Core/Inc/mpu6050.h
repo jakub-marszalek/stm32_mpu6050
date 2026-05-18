@@ -118,14 +118,16 @@ typedef struct
 
 /* Initialization and configuration */
 HAL_StatusTypeDef MPU_6050_Init(
-        MPU_6050_HandleTypeDef *hmpu,
-        I2C_HandleTypeDef *hi2c,
-        uint8_t dev_addr,
-        uint8_t accel_afs,
-        uint8_t gyro_fs
-    );
+    MPU_6050_HandleTypeDef *hmpu,
+    I2C_HandleTypeDef *hi2c,
+    uint8_t dev_addr,
+    uint8_t accel_afs,
+    uint8_t gyro_fs
+);
 HAL_StatusTypeDef MPU_6050_SetAccelAfs(MPU_6050_HandleTypeDef *hmpu, uint8_t accel_afs);
 HAL_StatusTypeDef MPU_6050_SetGyroFs(MPU_6050_HandleTypeDef *hmpu, uint8_t gyro_fs);
+HAL_StatusTypeDef MPU_6050_Sleep(const MPU_6050_HandleTypeDef *hmpu);
+HAL_StatusTypeDef MPU_6050_Wake(const MPU_6050_HandleTypeDef *hmpu);
 
 /* Data acquisition */
 HAL_StatusTypeDef MPU_6050_Read(const MPU_6050_HandleTypeDef *hmpu, MPU_6050_DataTypeDef *hdata);
@@ -137,19 +139,19 @@ void MPU_6050_ResetAngles(MPU_6050_AnglesTypeDef *hangles);
 /* Angle estimation - complementary filter */
 HAL_StatusTypeDef MPU_6050_SetCompFilterGain(MPU_6050_HandleTypeDef *hmpu, float filter_gain);
 void MPU_6050_UpdateCompFilterAngles(
-        const MPU_6050_HandleTypeDef *hmpu,
-        MPU_6050_AnglesTypeDef *hangles,
-        const MPU_6050_DataTypeDef *hdata,
-        float dt
-    );
+    const MPU_6050_HandleTypeDef *hmpu,
+    MPU_6050_AnglesTypeDef *hangles,
+    const MPU_6050_DataTypeDef *hdata,
+    float dt
+);
 
 /* Angle estimation - Kalman filter */
 HAL_StatusTypeDef MPU_6050_InitKalmanFilter(MPU_6050_KalmanFilterTypeDef *hkalman, float q, float r);
 void MPU_6050_UpdateKalmanFilterAngles(
-        const MPU_6050_DataTypeDef *hdata,
-        MPU_6050_KalmanFilterTypeDef *hkalman,
-        MPU_6050_AnglesTypeDef *hangles,
-        float dt
-    );
+    const MPU_6050_DataTypeDef *hdata,
+    MPU_6050_KalmanFilterTypeDef *hkalman,
+    MPU_6050_AnglesTypeDef *hangles,
+    float dt
+);
 
 #endif /* MPU_MPU6050_H */
