@@ -36,6 +36,20 @@
 #define ACCEL_AFS_16   (0x03 << 3)  /*!< ±16g — sensitivity:  2048 LSB/g */
 /** @} */
 
+/** @defgroup MPU6050_DLPF_Config Digital Low-Pass Filter configuration
+  * @brief    Values to pass as dlpf_cfg in MPU_6050_SetDLPF().
+  *           Correspond to DLPF_CFG bits [2:0] of the CONFIG register (0x1A).
+  * @{
+  */
+#define DLPF_CFG_0     (0x00)       /*!< Accel 260 Hz / Gyro 256 Hz - no filtering */
+#define DLPF_CFG_1     (0x01)       /*!< Accel 184 Hz / Gyro 188 Hz                */
+#define DLPF_CFG_2     (0x02)       /*!< Accel  94 Hz / Gyro  98 Hz                */
+#define DLPF_CFG_3     (0x03)       /*!< Accel  44 Hz / Gyro  42 Hz                */
+#define DLPF_CFG_4     (0x04)       /*!< Accel  21 Hz / Gyro  20 Hz                */
+#define DLPF_CFG_5     (0x05)       /*!< Accel  10 Hz / Gyro  10 Hz                */
+#define DLPF_CFG_6     (0x06)       /*!< Accel   5 Hz / Gyro   5 Hz                */
+/** @} */
+
 /** @defgroup MPU6050_Gyro_Range Gyroscope full-scale range selection
   * @brief    Values to pass as gyro_fs in MPU_6050_Init() and MPU_6050_SetGyroFs().
   *           Correspond to FS_SEL bits [4:3] of the GYRO_CONFIG register (0x1B).
@@ -125,6 +139,7 @@ HAL_StatusTypeDef MPU_6050_Init(
     uint8_t gyro_fs
 );
 HAL_StatusTypeDef MPU_6050_SetAccelAfs(MPU_6050_HandleTypeDef *hmpu, uint8_t accel_afs);
+HAL_StatusTypeDef MPU_6050_SetDLPF(const MPU_6050_HandleTypeDef *hmpu, uint8_t dlpf_cfg);
 HAL_StatusTypeDef MPU_6050_SetGyroFs(MPU_6050_HandleTypeDef *hmpu, uint8_t gyro_fs);
 HAL_StatusTypeDef MPU_6050_Sleep(const MPU_6050_HandleTypeDef *hmpu);
 HAL_StatusTypeDef MPU_6050_Wake(const MPU_6050_HandleTypeDef *hmpu);

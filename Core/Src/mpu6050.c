@@ -14,17 +14,16 @@
 #include "math.h"
 
 /* Private define ------------------------------------------------------------*/
-#define PWR_MGMT_1_ADDR   (0x6B)        /*!< Power Management 1 register address      */
-#define SLEEP_BIT         (1 << 6)      /*!< SLEEP bit (bit 6) of PWR_MGMT_1 register */
-
 #define ACCEL_CONFIG_ADDR (0x1C)        /*!< Accelerometer configuration register     */
 #define ACCEL_AFS_2_SENS  (16384.0f)    /*!< Sensitivity for ±2g range  in LSB/g      */
 #define ACCEL_AFS_4_SENS  (8192.0f)     /*!< Sensitivity for ±4g range  in LSB/g      */
 #define ACCEL_AFS_8_SENS  (4096.0f)     /*!< Sensitivity for ±8g range  in LSB/g      */
 #define ACCEL_AFS_16_SENS (2048.0f)     /*!< Sensitivity for ±16g range in LSB/g      */
 
-#define TEMP_DIVISOR      (340.0f)      /*!< Temperature conversion divisor           */
-#define TEMP_OFFSET       (36.53f)      /*!< Temperature conversion offset            */
+#define CONFIG_ADDR       (0x1A)        /*!< Configuration register (EXT_SYNC & DLPF) */
+#define DATA_START_ADDR   (0x3B)        /*!< First data register (ACCEL_XOUT_H)       */
+
+#define DLPF_CFG_MASK     (0x07)        /*!< Bits [2:0] of CONFIG register            */
 
 #define GYRO_CONFIG_ADDR  (0x1B)        /*!< Gyroscope configuration register         */
 #define GYRO_FS_250_SENS  (131.0f)      /*!< Sensitivity for ±250  °/s in LSB/°/s     */
@@ -32,10 +31,14 @@
 #define GYRO_FS_1000_SENS (32.8f)       /*!< Sensitivity for ±1000 °/s in LSB/°/s     */
 #define GYRO_FS_2000_SENS (16.4f)       /*!< Sensitivity for ±2000 °/s in LSB/°/s     */
 
-#define DATA_START_ADDR   (0x3B)        /*!< First data register (ACCEL_XOUT_H)       */
-
-#define MPU_INIT_TRIALS   (10)          /*!< Number of trails for I2C ready check     */
+#define MPU_INIT_TRIALS   (10)          /*!< Number of trials for I2C ready check     */
 #define MPU_I2C_TIMEOUT   (30)          /*!< I2C communication timeout in ms          */
+
+#define PWR_MGMT_1_ADDR   (0x6B)        /*!< Power Management 1 register address      */
+#define SLEEP_BIT         (1 << 6)      /*!< SLEEP bit (bit 6) of PWR_MGMT_1 register */
+
+#define TEMP_DIVISOR      (340.0f)      /*!< Temperature conversion divisor           */
+#define TEMP_OFFSET       (36.53f)      /*!< Temperature conversion offset            */
 
 /* Private functions ---------------------------------------------------------*/
 /**
@@ -246,6 +249,29 @@ HAL_StatusTypeDef MPU_6050_SetAccelAfs(MPU_6050_HandleTypeDef *hmpu, const uint8
     }
 
     ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, ACCEL_CONFIG_ADDR, 1, &afs);
+    return ret;
+}
+
+/**
+  * @brief  Configures the Digital Low-Pass Filter (DLPF).
+  * @note   Writes the DLPF_CFG bits [2:0] of the CONFIG register (0x1A).
+  *         Other bits of the register are preserved.
+  * @param  hmpu      Pointer to a MPU_6050_HandleTypeDef structure.
+  * @param  dlpf_cfg  DLPF configuration value (DLPF_CFG_0..DLPF_CFG_6).
+  * @retval HAL_StatusTypeDef  HAL_OK on success, HAL_ERROR if invalid range.
+  */
+HAL_StatusTypeDef MPU_6050_SetDLPF(const MPU_6050_HandleTypeDef *hmpu, const uint8_t dlpf_cfg)
+{
+    if (dlpf_cfg > 6) return HAL_ERROR;
+    HAL_StatusTypeDef ret = HAL_OK;
+    uint8_t reg = 0;
+
+    ret = mpu_read_register(hmpu->hi2c, hmpu->dev_addr, CONFIG_ADDR, 1, &reg);
+    if (ret != HAL_OK) return ret;
+
+    reg = (reg & ~DLPF_CFG_MASK) | dlpf_cfg;
+
+    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, CONFIG_ADDR, 1, &reg);
     return ret;
 }
 
