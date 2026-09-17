@@ -36,6 +36,20 @@
 #define ACCEL_AFS_16   (0x03 << 3)  /*!< ±16g — sensitivity:  2048 LSB/g */
 /** @} */
 
+/** @defgroup MPU6050_DLPF_Config Digital Low-Pass Filter configuration
+  * @brief    Values to pass as dlpf_cfg in MPU_6050_SetDLPF().
+  *           Correspond to DLPF_CFG bits [2:0] of the CONFIG register (0x1A).
+  * @{
+  */
+#define DLPF_CFG_0     (0x00)       /*!< Accel 260 Hz / Gyro 256 Hz - no filtering */
+#define DLPF_CFG_1     (0x01)       /*!< Accel 184 Hz / Gyro 188 Hz                */
+#define DLPF_CFG_2     (0x02)       /*!< Accel  94 Hz / Gyro  98 Hz                */
+#define DLPF_CFG_3     (0x03)       /*!< Accel  44 Hz / Gyro  42 Hz                */
+#define DLPF_CFG_4     (0x04)       /*!< Accel  21 Hz / Gyro  20 Hz                */
+#define DLPF_CFG_5     (0x05)       /*!< Accel  10 Hz / Gyro  10 Hz                */
+#define DLPF_CFG_6     (0x06)       /*!< Accel   5 Hz / Gyro   5 Hz                */
+/** @} */
+
 /** @defgroup MPU6050_Gyro_Range Gyroscope full-scale range selection
   * @brief    Values to pass as gyro_fs in MPU_6050_Init() and MPU_6050_SetGyroFs().
   *           Correspond to FS_SEL bits [4:3] of the GYRO_CONFIG register (0x1B).
@@ -53,6 +67,7 @@
   * @note   Must be initialized with MPU_6050_Init() before use.
   *         Stores I2C context, sensor configuration, and calibration offsets.
   *         Offsets are set to 0.0 by MPU_6050_Init() and updated by MPU_6050_Calibrate().
+  *         Gain is set by MPU_6050_Init() and can be updated at any time.
   */
 typedef struct
 {
@@ -66,6 +81,7 @@ typedef struct
     float             gyro_offset_x;    /*!< Gyroscope X-axis offset in °/s (set by calibration)       */
     float             gyro_offset_y;    /*!< Gyroscope Y-axis offset in °/s (set by calibration)       */
     float             gyro_offset_z;    /*!< Gyroscope Z-axis offset in °/s (set by calibration)       */
+    float             comp_filter_gain; /*!< Complementary filter gain value (0.00 .. 1.00)            */
 } MPU_6050_HandleTypeDef;
 
 /**
@@ -81,19 +97,76 @@ typedef struct
     float gyro_x;   /*!< X-axis angular velocity in degrees/s    */
     float gyro_y;   /*!< Y-axis angular velocity in degrees/s    */
     float gyro_z;   /*!< Z-axis angular velocity in degrees/s    */
-} MPU_6050_Data_TypeDef;
+} MPU_6050_DataTypeDef;
+
+/**
+  * @brief  MPU-6050 sensor angles structure.
+  * @note   Populated by MPU_6050_UpdateCompFilterAngles() and MPU_6050_UpdateKalmanFilterAngles().
+  */
+typedef struct
+{
+    float accel_angle_x;    /*!< Rotation around X axis in degrees calculated from accelerometer values */
+    float accel_angle_y;    /*!< Rotation around Y axis in degrees calculated from accelerometer values */
+    float filter_angle_x;   /*!< Filtered rotation around X axis in degrees (complementary filter)      */
+    float filter_angle_y;   /*!< Filtered rotation around Y axis in degrees (complementary filter)      */
+    float kalman_angle_x;   /*!< Filtered rotation around X axis in degrees (Kalman filter)             */
+    float kalman_angle_y;   /*!< Filtered rotation around Y axis in degrees (Kalman filter)             */
+} MPU_6050_AnglesTypeDef;
+
+/**
+  * @brief  MPU-6050 sensor Kalman filter structure.
+  * @note   Populated by MPU_6050_UpdateKalmanFilterAngles().
+  *         Must be initialized with MPU_6050_InitKalmanFilter() before use.
+  */
+typedef struct
+{
+    float angle_x;  /*!< Estimated rotation around X axis in degrees */
+    float angle_y;  /*!< Estimated rotation around Y axis in degrees */
+    float p_x;      /*!< Estimation uncertainty for X axis rotation  */
+    float p_y;      /*!< Estimation uncertainty for Y axis rotation  */
+    float q;        /*!< Process noise (gyroscope drift)             */
+    float r;        /*!< Measurement noise (accelerometer noise)     */
+} MPU_6050_KalmanFilterTypeDef;
 
 /* Exported functions prototypes ---------------------------------------------*/
+
+/* Initialization and configuration */
 HAL_StatusTypeDef MPU_6050_Init(
-        MPU_6050_HandleTypeDef *hmpu,
-        I2C_HandleTypeDef *hi2c,
-        uint8_t dev_addr,
-        uint8_t accel_afs,
-        uint8_t gyro_fs
-    );
+    MPU_6050_HandleTypeDef *hmpu,
+    I2C_HandleTypeDef *hi2c,
+    uint8_t dev_addr,
+    uint8_t accel_afs,
+    uint8_t gyro_fs
+);
 HAL_StatusTypeDef MPU_6050_SetAccelAfs(MPU_6050_HandleTypeDef *hmpu, uint8_t accel_afs);
+HAL_StatusTypeDef MPU_6050_SetDLPF(const MPU_6050_HandleTypeDef *hmpu, uint8_t dlpf_cfg);
 HAL_StatusTypeDef MPU_6050_SetGyroFs(MPU_6050_HandleTypeDef *hmpu, uint8_t gyro_fs);
-HAL_StatusTypeDef MPU_6050_Read(const MPU_6050_HandleTypeDef *hmpu, MPU_6050_Data_TypeDef *hdata);
+HAL_StatusTypeDef MPU_6050_Sleep(const MPU_6050_HandleTypeDef *hmpu);
+HAL_StatusTypeDef MPU_6050_Wake(const MPU_6050_HandleTypeDef *hmpu);
+
+/* Data acquisition */
+HAL_StatusTypeDef MPU_6050_Read(const MPU_6050_HandleTypeDef *hmpu, MPU_6050_DataTypeDef *hdata);
 HAL_StatusTypeDef MPU_6050_Calibrate(MPU_6050_HandleTypeDef *hmpu, uint16_t samples);
+
+/* Angle estimation - common */
+void MPU_6050_ResetAngles(MPU_6050_AnglesTypeDef *hangles);
+
+/* Angle estimation - complementary filter */
+HAL_StatusTypeDef MPU_6050_SetCompFilterGain(MPU_6050_HandleTypeDef *hmpu, float filter_gain);
+void MPU_6050_UpdateCompFilterAngles(
+    const MPU_6050_HandleTypeDef *hmpu,
+    MPU_6050_AnglesTypeDef *hangles,
+    const MPU_6050_DataTypeDef *hdata,
+    float dt
+);
+
+/* Angle estimation - Kalman filter */
+HAL_StatusTypeDef MPU_6050_InitKalmanFilter(MPU_6050_KalmanFilterTypeDef *hkalman, float q, float r);
+void MPU_6050_UpdateKalmanFilterAngles(
+    const MPU_6050_DataTypeDef *hdata,
+    MPU_6050_KalmanFilterTypeDef *hkalman,
+    MPU_6050_AnglesTypeDef *hangles,
+    float dt
+);
 
 #endif /* MPU_MPU6050_H */
