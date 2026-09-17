@@ -82,7 +82,7 @@ static HAL_StatusTypeDef mpu_read_register(
     const uint8_t size,
     uint8_t *reg
 ) {
-    if (NULL == hi2c || NULL == reg || size == 0) return HAL_ERROR;
+    if (hi2c == NULL || reg == NULL || size == 0) return HAL_ERROR;
 
     const HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(
         hi2c,
