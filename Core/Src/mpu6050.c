@@ -19,11 +19,13 @@
 #define ACCEL_AFS_4_SENS  (8192.0f)     /*!< Sensitivity for ±4g range  in LSB/g      */
 #define ACCEL_AFS_8_SENS  (4096.0f)     /*!< Sensitivity for ±8g range  in LSB/g      */
 #define ACCEL_AFS_16_SENS (2048.0f)     /*!< Sensitivity for ±16g range in LSB/g      */
+#define ACCEL_NORM_EPS    (1e-6f)       /*!< Threshold preventing division by 0       */
 
 #define CONFIG_ADDR       (0x1A)        /*!< Configuration register (EXT_SYNC & DLPF) */
 #define DATA_START_ADDR   (0x3B)        /*!< First data register (ACCEL_XOUT_H)       */
 
 #define DLPF_CFG_MASK     (0x07)        /*!< Bits [2:0] of CONFIG register            */
+#define DLPF_LEVELS       (6)           /*!< Total number of DLPF config levels       */
 
 #define GYRO_CONFIG_ADDR  (0x1B)        /*!< Gyroscope configuration register         */
 #define GYRO_FS_250_SENS  (131.0f)      /*!< Sensitivity for ±250  °/s in LSB/°/s     */
@@ -31,10 +33,22 @@
 #define GYRO_FS_1000_SENS (32.8f)       /*!< Sensitivity for ±1000 °/s in LSB/°/s     */
 #define GYRO_FS_2000_SENS (16.4f)       /*!< Sensitivity for ±2000 °/s in LSB/°/s     */
 
+#define GRAVITY_G         (1.0f)        /*!< Gravity in g's                           */
+
+#define MPU_EMPTY_VALUE   (0.0f)        /*!< Empty float value used in initialization */
 #define MPU_INIT_TRIALS   (10)          /*!< Number of trials for I2C ready check     */
 #define MPU_I2C_TIMEOUT   (30)          /*!< I2C communication timeout in ms          */
+#define MPU_RAW_DATA_LEN  (14)          /*!< Byte length of the raw sensor data       */
+#define MPU_WAKE_DELAY_MS (20)          /*!< Delay used after wake in milliseconds    */
+
+#define MAX_C_FILTER_GAIN (1.0f)        /*!< Maximal possible value of filter gain    */
+#define MIN_C_FILTER_GAIN (0.0f)        /*!< Minimal possible value of filter gain    */
 
 #define PWR_MGMT_1_ADDR   (0x6B)        /*!< Power Management 1 register address      */
+
+#define RAD_TO_DEG        (180.0f / (float)M_PI)  /*!< Radians to degrees conversion  */
+#define REG_SIZE_1B       (1)           /*!< Size of a 1-byte register                */
+
 #define SLEEP_BIT         (1 << 6)      /*!< SLEEP bit (bit 6) of PWR_MGMT_1 register */
 
 #define TEMP_DIVISOR      (340.0f)      /*!< Temperature conversion divisor           */
@@ -68,7 +82,7 @@ static HAL_StatusTypeDef mpu_read_register(
     const uint8_t size,
     uint8_t *reg
 ) {
-    if (hi2c == NULL || reg == NULL || size == 0) return HAL_ERROR;
+    if (NULL == hi2c || NULL == reg || size == 0) return HAL_ERROR;
 
     const HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(
         hi2c,
@@ -161,10 +175,10 @@ static void MPU_6050_UpdateAccelAngles(MPU_6050_AnglesTypeDef *hangles, const MP
 
     const float norm_x = sqrtf(acc_x * acc_x + acc_z * acc_z);
     const float norm_y = sqrtf(acc_y * acc_y + acc_z * acc_z);
-    if (norm_x < 1e-6f || norm_y < 1e-6f) return;
+    if (norm_x < ACCEL_NORM_EPS || norm_y < ACCEL_NORM_EPS) return;
 
-    hangles->accel_angle_x = atan2f(acc_y, sqrtf(acc_x * acc_x + acc_z * acc_z)) * (180.0f / (float)M_PI);
-    hangles->accel_angle_y = atan2f(-acc_x, sqrtf(acc_y * acc_y + acc_z * acc_z)) * (180.0f / (float)M_PI);
+    hangles->accel_angle_x = atan2f( acc_y, sqrtf(acc_x * acc_x + acc_z * acc_z)) * RAD_TO_DEG;
+    hangles->accel_angle_y = atan2f(-acc_x, sqrtf(acc_y * acc_y + acc_z * acc_z)) * RAD_TO_DEG;
 }
 
 /* Exported functions --------------------------------------------------------*/
@@ -195,21 +209,21 @@ HAL_StatusTypeDef MPU_6050_Init(
 
     hmpu->hi2c           = hi2c;
     hmpu->dev_addr       = dev_addr;
-    hmpu->accel_offset_x = 0.0f;
-    hmpu->accel_offset_y = 0.0f;
-    hmpu->accel_offset_z = 0.0f;
-    hmpu->gyro_offset_x  = 0.0f;
-    hmpu->gyro_offset_y  = 0.0f;
-    hmpu->gyro_offset_z  = 0.0f;
+    hmpu->accel_offset_x = MPU_EMPTY_VALUE;
+    hmpu->accel_offset_y = MPU_EMPTY_VALUE;
+    hmpu->accel_offset_z = MPU_EMPTY_VALUE;
+    hmpu->gyro_offset_x  = MPU_EMPTY_VALUE;
+    hmpu->gyro_offset_y  = MPU_EMPTY_VALUE;
+    hmpu->gyro_offset_z  = MPU_EMPTY_VALUE;
 
     ret = HAL_I2C_IsDeviceReady(hmpu->hi2c, hmpu->dev_addr, MPU_INIT_TRIALS, MPU_I2C_TIMEOUT);
     if (ret != HAL_OK) return ret;
 
     const uint8_t byte = 0x00;
-    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, 1, &byte);
+    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, REG_SIZE_1B, &byte);
     if (ret != HAL_OK) return ret;
 
-    HAL_Delay(20);
+    HAL_Delay(MPU_WAKE_DELAY_MS);
 
     ret = MPU_6050_SetAccelAfs(hmpu, accel_afs);
     if (ret != HAL_OK) return ret;
@@ -248,7 +262,7 @@ HAL_StatusTypeDef MPU_6050_SetAccelAfs(MPU_6050_HandleTypeDef *hmpu, const uint8
             return HAL_ERROR;
     }
 
-    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, ACCEL_CONFIG_ADDR, 1, &afs);
+    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, ACCEL_CONFIG_ADDR, REG_SIZE_1B, &afs);
     return ret;
 }
 
@@ -262,16 +276,16 @@ HAL_StatusTypeDef MPU_6050_SetAccelAfs(MPU_6050_HandleTypeDef *hmpu, const uint8
   */
 HAL_StatusTypeDef MPU_6050_SetDLPF(const MPU_6050_HandleTypeDef *hmpu, const uint8_t dlpf_cfg)
 {
-    if (dlpf_cfg > 6) return HAL_ERROR;
+    if (dlpf_cfg > DLPF_LEVELS) return HAL_ERROR;
     HAL_StatusTypeDef ret = HAL_OK;
     uint8_t reg = 0;
 
-    ret = mpu_read_register(hmpu->hi2c, hmpu->dev_addr, CONFIG_ADDR, 1, &reg);
+    ret = mpu_read_register(hmpu->hi2c, hmpu->dev_addr, CONFIG_ADDR, REG_SIZE_1B, &reg);
     if (ret != HAL_OK) return ret;
 
     reg = (reg & ~DLPF_CFG_MASK) | dlpf_cfg;
 
-    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, CONFIG_ADDR, 1, &reg);
+    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, CONFIG_ADDR, REG_SIZE_1B, &reg);
     return ret;
 }
 
@@ -305,7 +319,7 @@ HAL_StatusTypeDef MPU_6050_SetGyroFs(MPU_6050_HandleTypeDef *hmpu, const uint8_t
             return HAL_ERROR;
     }
 
-    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, GYRO_CONFIG_ADDR, 1, &fs);
+    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, GYRO_CONFIG_ADDR, REG_SIZE_1B, &fs);
     return ret;
 }
 
@@ -322,12 +336,12 @@ HAL_StatusTypeDef MPU_6050_Sleep(const MPU_6050_HandleTypeDef *hmpu)
     HAL_StatusTypeDef ret = HAL_OK;
     uint8_t reg = 0;
 
-    ret = mpu_read_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, 1, &reg);
+    ret = mpu_read_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, REG_SIZE_1B, &reg);
     if (ret != HAL_OK) return ret;
 
     reg |= SLEEP_BIT;
 
-    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, 1, &reg);
+    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, REG_SIZE_1B, &reg);
     return ret;
 }
 
@@ -343,12 +357,12 @@ HAL_StatusTypeDef MPU_6050_Wake(const MPU_6050_HandleTypeDef *hmpu)
     HAL_StatusTypeDef ret = HAL_OK;
     uint8_t reg = 0;
 
-    ret = mpu_read_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, 1, &reg);
+    ret = mpu_read_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, REG_SIZE_1B, &reg);
     if (ret != HAL_OK) return ret;
 
     reg &= ~(SLEEP_BIT);
 
-    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, 1, &reg);
+    ret = mpu_write_register(hmpu->hi2c, hmpu->dev_addr, PWR_MGMT_1_ADDR, REG_SIZE_1B, &reg);
     return ret;
 }
 
@@ -365,10 +379,10 @@ HAL_StatusTypeDef MPU_6050_Wake(const MPU_6050_HandleTypeDef *hmpu)
   */
 HAL_StatusTypeDef MPU_6050_Read(const MPU_6050_HandleTypeDef *hmpu, MPU_6050_DataTypeDef *hdata)
 {
-    uint8_t raw_data[14];
+    uint8_t raw_data[MPU_RAW_DATA_LEN];
     HAL_StatusTypeDef ret = HAL_OK;
 
-    ret = mpu_read_register(hmpu->hi2c, hmpu->dev_addr, DATA_START_ADDR, 14, raw_data);
+    ret = mpu_read_register(hmpu->hi2c, hmpu->dev_addr, DATA_START_ADDR, MPU_RAW_DATA_LEN, raw_data);
     if (ret != HAL_OK) return ret;
 
     hdata->accel_x = calculate_accel(raw_to_int16(raw_data[0], raw_data[1]), hmpu->accel_sens) - hmpu->accel_offset_x;
@@ -414,7 +428,7 @@ HAL_StatusTypeDef MPU_6050_Calibrate(MPU_6050_HandleTypeDef *hmpu, const uint16_
 
     hmpu->accel_offset_x = (float)(accel_sum_x / samples);
     hmpu->accel_offset_y = (float)(accel_sum_y / samples);
-    hmpu->accel_offset_z = (float)(accel_sum_z / samples) - 1.0f; /* Compensate for 1g gravity */
+    hmpu->accel_offset_z = (float)(accel_sum_z / samples) - GRAVITY_G; /* Compensate for 1g gravity */
     hmpu->gyro_offset_x  = (float)(gyro_sum_x / samples);
     hmpu->gyro_offset_y  = (float)(gyro_sum_y / samples);
     hmpu->gyro_offset_z  = (float)(gyro_sum_z / samples);
@@ -428,12 +442,12 @@ HAL_StatusTypeDef MPU_6050_Calibrate(MPU_6050_HandleTypeDef *hmpu, const uint16_
   */
 void MPU_6050_ResetAngles(MPU_6050_AnglesTypeDef *hangles)
 {
-    hangles->accel_angle_x  = 0.0f;
-    hangles->accel_angle_y  = 0.0f;
-    hangles->filter_angle_x = 0.0f;
-    hangles->filter_angle_y = 0.0f;
-    hangles->kalman_angle_x = 0.0f;
-    hangles->kalman_angle_y = 0.0f;
+    hangles->accel_angle_x  = MPU_EMPTY_VALUE;
+    hangles->accel_angle_y  = MPU_EMPTY_VALUE;
+    hangles->filter_angle_x = MPU_EMPTY_VALUE;
+    hangles->filter_angle_y = MPU_EMPTY_VALUE;
+    hangles->kalman_angle_x = MPU_EMPTY_VALUE;
+    hangles->kalman_angle_y = MPU_EMPTY_VALUE;
 }
 
 /**
@@ -444,7 +458,7 @@ void MPU_6050_ResetAngles(MPU_6050_AnglesTypeDef *hangles)
   */
 HAL_StatusTypeDef MPU_6050_SetCompFilterGain(MPU_6050_HandleTypeDef *hmpu, const float filter_gain)
 {
-    if (filter_gain < 0.0f || filter_gain > 1.0f) return HAL_ERROR;
+    if (filter_gain < MIN_C_FILTER_GAIN || filter_gain > MAX_C_FILTER_GAIN) return HAL_ERROR;
     hmpu->comp_filter_gain = filter_gain;
     return HAL_OK;
 }
@@ -454,7 +468,7 @@ HAL_StatusTypeDef MPU_6050_SetCompFilterGain(MPU_6050_HandleTypeDef *hmpu, const
   * @param  hmpu     Pointer to a MPU_6050_HandleTypeDef structure.
   * @param  hangles  Pointer to a MPU_6050_AnglesTypeDef structure.
   * @param  hdata    Pointer to a MPU_6050_DataTypeDef structure.
-  * @param  dt       Time period between samples in seconds.
+  * @param  dt       Time period between samples in seconds (greater than 0).
   */
 void MPU_6050_UpdateCompFilterAngles(
     const MPU_6050_HandleTypeDef *hmpu,
@@ -474,7 +488,7 @@ void MPU_6050_UpdateCompFilterAngles(
 
 /**
   * @brief  Initializes a MPU_6050_KalmanFilterTypeDef structure with noise parameters.
-  * @param  hkalman  Pointer to a MPU_6050_KalmanFilter_TypeDef structure.
+  * @param  hkalman  Pointer to a MPU_6050_KalmanFilterTypeDef structure.
   * @param  q        Process noise covariance — models gyroscope drift (recommended: 0.001).
   * @param  r        Measurement noise covariance — models accelerometer noise (recommended: 0.03).
   * @note   Both q and r must be greater than 0. Higher q trusts the accelerometer more;
@@ -485,8 +499,8 @@ HAL_StatusTypeDef MPU_6050_InitKalmanFilter(MPU_6050_KalmanFilterTypeDef *hkalma
 {
     if (q <= 0.0f || r <= 0.0f) return HAL_ERROR;
 
-    hkalman->angle_x = 0.0f;
-    hkalman->angle_y = 0.0f;
+    hkalman->angle_x = MPU_EMPTY_VALUE;
+    hkalman->angle_y = MPU_EMPTY_VALUE;
     hkalman->p_x     = 1.0f;
     hkalman->p_y     = 1.0f;
     hkalman->q       = q;
@@ -498,7 +512,7 @@ HAL_StatusTypeDef MPU_6050_InitKalmanFilter(MPU_6050_KalmanFilterTypeDef *hkalma
 /**
   * @brief  Updates an angles structure with values calculated from Kalman filter formulas.
   * @param  hdata    Pointer to a MPU_6050_DataTypeDef structure.
-  * @param  hkalman  Pointer to a MPU_6050_KalmanFilterTypeDef structure.
+  * @param  hkalman  Pointer to a MPU_6050_Kalman_FilterTypeDef structure.
   * @param  hangles  Pointer to a MPU_6050_AnglesTypeDef structure.
   * @param  dt       Time period between samples in seconds.
   * @note   Implements a discrete Kalman filter in two steps:
