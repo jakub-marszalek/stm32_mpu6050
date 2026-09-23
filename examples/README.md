@@ -18,5 +18,5 @@ To build one, copy its contents into `Core/Src/main.c` (replacing the current on
 defined in `/* Private define --- ... */` if needed.
 
 ## basic_read.c
-Minimal usage of the MPU_6050 driver. Contains sensor initialization, DLPF configuration, calibration, reading data and
+Minimal usage of the MPU_6050 driver. Contains sensor initialization, DLPF configuration, calibration, reading data and 
 sending it over UART.
