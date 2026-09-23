@@ -14,7 +14,7 @@ All examples assume `hi2c1` (sensor bus) and `huart3` (debug UART, ST-Link  VCP,
 board's config if different.
 
 ## Building an example
-To build one, copy its contents  into `Core/Src/main.c` (replacing the current one) and rebuild. Adjust parameters 
+To build one, copy its contents into `Core/Src/main.c` (replacing the current one) and rebuild. Adjust parameters 
 defined in `/* Private define --- ... */` if needed.
 
 ## basic_read.c
